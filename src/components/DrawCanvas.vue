@@ -19,7 +19,11 @@
       />
       <q-btn
         round
-        :style="hex =='#fff'?'background:#1976D2;color:white;': 'background:' + hex + ';color:white;'"
+        :style="
+          hex == '#fff'
+            ? 'background:#1976D2;color:white;'
+            : 'background:' + hex + ';color:white;'
+        "
         icon="palette"
         @click="changingColor = !changingColor"
       /><q-btn round color="primary" @click="toggleEraser"
@@ -78,11 +82,13 @@
         @touchmove="touchmove"
       ></canvas>
     </div>
+    {{ socket.id }}
   </div>
 </template>
 
 <script>
 export default {
+  props: ["socket"],
   data() {
     return {
       painting: false,
@@ -97,9 +103,28 @@ export default {
   },
   mounted() {
     this.resize();
+    this.clearCanvas();
     this.$refs.canvas.ontouchmove = function (e) {
       e.preventDefault();
     };
+    this.socket.on("test", (data) => {
+      console.log(data);
+       this.currentStroke.push([
+        Number.parseInt(data.points[0]),
+        Number.parseInt(data.points[1]),
+      ]);
+      const ctx = this.$refs.canvas.getContext("2d");
+      ctx.beginPath()
+      ctx.lineWidth = data.brushSize;
+      ctx.strokeStyle = data.hex;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.lineTo(
+        data.points[0],
+        data.points[1]
+      );
+      ctx.stroke();
+    });
   },
   watch: {
     hex: function () {
@@ -130,6 +155,14 @@ export default {
     mousemove(e) {
       if (!this.painting) return;
       this.dot(e);
+      this.socket.emit("test", {
+        points: [
+          e.clientX - this.getOffset(this.$refs.canvas).left,
+          e.clientY - this.getOffset(this.$refs.canvas).top,
+        ],
+        hex: this.hex,
+        brushSize: this.brushSize,
+      });
     },
     touchmove(e) {
       if (!this.painting) return;
@@ -186,6 +219,11 @@ export default {
     redo() {
       this.strokes.push(this.removedStrokes.shift());
       this.redrawCanvas();
+    },
+    clearCanvas() {
+      // const ctx = this.$refs.canvas.getContext('2d')
+      // cxt.fillStyle = "rgb(255, 255, 255)";
+      // ctx.clearRect(0, 0, this.$refs.canvas.width, this.$refs.canvas.height);
     },
     redrawCanvas() {
       const ctx = this.$refs.canvas.getContext("2d");
