@@ -4,18 +4,18 @@
       <q-btn
         round
         color="primary"
+        :disable="cStep < 0"
         icon="undo"
         @click="undo"
-        :disabled="strokes.length <= 0"
-        :key="strokes"
+        :key="strokesList"
       />
       <q-btn
         round
         color="primary"
+        :disable="false"
         icon="redo"
         @click="redo"
-        :disabled="removedStrokes.length <= 0"
-        :key="strokes"
+        :key="strokesList"
       />
       <q-btn
         round
@@ -26,7 +26,8 @@
         "
         icon="palette"
         @click="changingColor = !changingColor"
-      /><q-btn round color="primary" @click="toggleEraser"
+      />
+      <q-btn round color="primary" @click="toggleEraser"
         ><svg
           xmlns="http://www.w3.org/2000/svg"
           xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -46,8 +47,8 @@
             d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 0 1-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0M4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53l-4.95-4.95l-4.95 4.95z"
             fill="#fff"
           />
-        </svg>
-      </q-btn>
+        </svg> </q-btn
+      ><q-btn round color="negative" icon="delete" @click="deleteCanvas" />
       <q-color
         v-show="changingColor"
         v-model="hex"
@@ -69,9 +70,12 @@
         />
       </div>
     </div>
-    <div class="flex justify-center">
+    <div class="flex column items-center">
+      <div :style="canvasOwner ? 'opacity:1' : 'opacity:0'">
+        <strong>{{ canvasOwner }}</strong> is drawing canvas
+      </div>
       <canvas
-        style="border: 1px solid black; margin: 50px"
+        style="border: 2px solid black"
         ref="canvas"
         @resize="resize()"
         @mousemove="mousemove"
@@ -82,107 +86,168 @@
         @touchmove="touchmove"
       ></canvas>
     </div>
-    {{ socket.id }}
+    {{ canPainting }}
+    {{ socket.username }} ({{ socket.id }}) {{ strokesList.length }}{{ cStep }}
+    <!-- <img
+      style="transform: scale(0.3)"
+      v-for="img in strokesList"
+      :src="img"
+      :key="img"
+    /> -->
   </div>
 </template>
 
 <script>
 export default {
-  props: ["socket"],
   data() {
     return {
+      socket: {},
+      eraserActive: false,
       painting: false,
-      strokesCount: 0,
+      canPainting: true,
+      canvasOwner: "",
       strokes: [], //hold all strokes' points array
+      strokesList: [],
+      redo_list: [],
       currentStroke: [],
       removedStrokes: [],
       hex: "#1976D2",
       brushSize: 10,
       changingColor: false,
+      ctx: null,
+      cStep: -1,
     };
   },
   mounted() {
+    this.ctx = this.$refs.canvas.getContext("2d");
+
     this.resize();
-    this.clearCanvas();
     this.$refs.canvas.ontouchmove = function (e) {
       e.preventDefault();
     };
-    this.socket.on("test", (data) => {
-      console.log(data);
-       this.currentStroke.push([
-        Number.parseInt(data.points[0]),
-        Number.parseInt(data.points[1]),
-      ]);
-      const ctx = this.$refs.canvas.getContext("2d");
-      ctx.beginPath()
-      ctx.lineWidth = data.brushSize;
-      ctx.strokeStyle = data.hex;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.lineTo(
-        data.points[0],
-        data.points[1]
-      );
-      ctx.stroke();
-    });
+    this.socket = this.$store.state.socket;
+    console.log(this.socket);
+    this.addSocketListeners();
   },
   watch: {
     hex: function () {
       this.changingColor = false;
     },
-    painting: function () {
-      console.log(this.painting);
+    eraserActive: function () {
+      if (this.eraserActive)
+        this.$refs.canvas.style = `border: 3px solid red;
+        cursor: url('https://api.iconify.design/mdi-eraser.svg?height=24')
+           4 12, auto`;
+      else this.$refs.canvas.style = `border: 1px solid black;cursor: default`;
     },
   },
-  // updated(){
-  //   console.log(this.hex)
-  // },
   methods: {
     resize() {
-      // console.log("resizing");
-      this.$refs.canvas.width = window.innerWidth - 100;
-      this.$refs.canvas.height = window.innerHeight / 1.5;
+      // this.$refs.canvas.width = window.innerWidth - 100;
+      // this.$refs.canvas.height = window.innerHeight / 1.5;
+      this.$refs.canvas.width = 350;
+      this.$refs.canvas.height = 500;
+    },
+    addSocketListeners() {
+      this.socket.on("lockCanvas", (username) => {
+        this.canvasOwner = username;
+        this.canPainting = false;
+      });
+      this.socket.on("releaseCanvas", (canvasData) => {
+        this.cStep++;
+        this.strokesList.push(canvasData);
+        if(this.cStep<this.strokesList.length-1){
+          this.strokesList.length = this.cStep
+        }
+        this.reDrawCanvas(false);
+        // console.log(canvasData);
+        this.canvasOwner = "";
+        this.canPainting = true;
+      });
+      this.socket.on("receiveUndo", (user) => {
+        this.$q.notify({ message: `${user.username} did an undo!` });
+        this.cStep--;
+        this.reDrawCanvas(true);
+      });
+      this.socket.on("receiveRedo", (user) => {
+        this.$q.notify({ message: `${user.username} did a redo!` });
+        this.cStep++;
+        this.reDrawCanvas(true);
+      });
+      this.socket.on("brushMove", (data) => {
+        // console.log(data);
+        this.currentStroke.push([
+          Number.parseInt(data.points[0]),
+          Number.parseInt(data.points[1]),
+        ]);
+        this.ctx.beginPath();
+        this.ctx.lineWidth = data.brushSize;
+        this.ctx.strokeStyle = data.hex;
+        this.ctx.lineJoin = "round";
+        this.ctx.lineCap = "round";
+        this.ctx.lineTo(data.points[0], data.points[1]);
+        this.ctx.stroke();
+      });
+      this.socket.on("clearCanvas", (data) => {
+        this.$q.notify({
+          message: `${data.username} cleared the canvas!`,
+          color: "negative",
+        });
+        this.$store.state.msgsData.push(data);
+        this.clearCanvas(data);
+      });
     },
     mousedown(e) {
+      if (!this.canPainting) return;
       this.painting = true;
       if (this.removedStrokes) this.removedStrokes = [];
       this.currentStroke = [];
-      const ctx = this.$refs.canvas.getContext("2d");
-      ctx.beginPath();
-
+      this.ctx.beginPath();
+      this.socket.emit("lockCanvas", this.socket.username);
       this.mousemove(e);
     },
     mousemove(e) {
-      if (!this.painting) return;
+      if (!this.painting || !this.canPainting) return;
       this.dot(e);
-      this.socket.emit("test", {
+      let payload = {
         points: [
           e.clientX - this.getOffset(this.$refs.canvas).left,
           e.clientY - this.getOffset(this.$refs.canvas).top,
         ],
-        hex: this.hex,
+        hex: this.eraserActive ? "#fff" : this.hex,
         brushSize: this.brushSize,
-      });
+      };
+      this.socket.emit("brushMove", payload);
+      // console.log(payload)
     },
     touchmove(e) {
-      if (!this.painting) return;
-      // console.log(e.touches[0]);
+      if (!this.painting || !this.canPainting) return;
+      this.dotTouch(e);
+      let payload = {
+        points: [
+          e.touches[0].clientX - this.getOffset(this.$refs.canvas).left,
+          e.touches[0].clientY - this.getOffset(this.$refs.canvas).top,
+        ],
+        hex: this.eraserActive ? "#fff" : this.hex,
+        brushSize: this.brushSize,
+      };
+      this.socket.emit("brushMove", payload);
+    },
+    dotTouch(e) {
       this.currentStroke.push([
         Number.parseInt(e.touches[0].clientX),
         Number.parseInt(e.touches[0].clientY),
       ]);
 
-      const ctx = this.$refs.canvas.getContext("2d");
-      ctx.lineWidth = this.brushSize;
-      ctx.strokeStyle = this.hex;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.lineTo(
+      this.ctx.lineWidth = this.brushSize;
+      this.ctx.strokeStyle = this.eraserActive ? "#fff" : this.hex;
+      this.ctx.lineJoin = "round";
+      this.ctx.lineCap = "round";
+      this.ctx.lineTo(
         e.touches[0].clientX - this.getOffset(this.$refs.canvas).left,
         e.touches[0].clientY - this.getOffset(this.$refs.canvas).top
       );
-      ctx.stroke();
-      // this.dot(e);
+      this.ctx.stroke();
     },
     dot(e) {
       this.currentStroke.push([
@@ -190,64 +255,87 @@ export default {
         Number.parseInt(e.clientY),
       ]);
 
-      const ctx = this.$refs.canvas.getContext("2d");
-      ctx.lineWidth = this.brushSize;
-      ctx.strokeStyle = this.hex;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.lineTo(
+      this.ctx.lineWidth = this.brushSize;
+      this.ctx.strokeStyle = this.eraserActive ? "#fff" : this.hex;
+      this.ctx.lineJoin = "round";
+      this.ctx.lineCap = "round";
+      this.ctx.lineTo(
         e.clientX - this.getOffset(this.$refs.canvas).left,
         e.clientY - this.getOffset(this.$refs.canvas).top
       );
-      ctx.stroke();
+      this.ctx.stroke();
     },
     mouseup() {
       this.painting = false;
-      this.strokes.push({
-        strokePoints: this.currentStroke,
-        hex: this.hex,
-        brushSize: this.brushSize,
-      });
-      // this.strokesCount++;
+      // this.strokes.push({
+      //   strokePoints: this.currentStroke,
+      //   hex: this.hex,
+      //   brushSize: this.brushSize,
+      // });
+      this.cStep++;
+      this.strokesList.push(this.$refs.canvas.toDataURL());
+      // console.log(this.strokesList);
+      this.socket.emit("releaseCanvas", this.$refs.canvas.toDataURL());
       // console.log(this.strokes);
+      if (this.cStep < this.strokesList.length - 1) {
+        console.log("yes");
+        this.strokesList.length = this.cStep;
+      }
     },
+    test() {},
     undo() {
-      this.removedStrokes.unshift(this.strokes.pop());
-      // console.log(this.removedStrokes);
-      this.redrawCanvas();
+      // this.removedStrokes.unshift(this.strokes.pop());
+      this.socket.emit("sendUndo", {
+        id: this.socket.id,
+        username: this.socket.username,
+      });
+      if (this.strokesList <= 0) return;
+      this.cStep--;
+      this.reDrawCanvas(true);
     },
     redo() {
-      this.strokes.push(this.removedStrokes.shift());
-      this.redrawCanvas();
-    },
-    clearCanvas() {
-      // const ctx = this.$refs.canvas.getContext('2d')
-      // cxt.fillStyle = "rgb(255, 255, 255)";
-      // ctx.clearRect(0, 0, this.$refs.canvas.width, this.$refs.canvas.height);
-    },
-    redrawCanvas() {
-      const ctx = this.$refs.canvas.getContext("2d");
-      ctx.clearRect(0, 0, this.$refs.canvas.width, this.$refs.canvas.height);
-      this.strokes.forEach((stroke) => {
-        ctx.beginPath();
-        ctx.strokeStyle = stroke.hex;
-        ctx.lineWidth = stroke.brushSize;
-        ctx.lineJoin = "round";
-
-        ctx.lineCap = "round";
-
-        stroke.strokePoints.forEach((point) => {
-          ctx.lineTo(
-            point[0] - this.getOffset(this.$refs.canvas).left,
-            point[1] - this.getOffset(this.$refs.canvas).top
-          );
-
-          ctx.stroke();
-        });
+      if (this.cStep >= this.strokesList.length - 1) {
+        this.$q.notify({ message: "max limit!" });
+        return;
+      }
+      this.socket.emit("sendRedo", {
+        id: this.socket.id,
+        username: this.socket.username,
       });
+      this.cStep++;
+      this.reDrawCanvas(true);
+    },
+    clearCanvas(data) {
+      console.log(data.username + " cleared canvas");
+      this.ctx.fillStyle = "rgb(255, 255, 255)";
+      this.ctx.clearRect(
+        0,
+        0,
+        this.$refs.canvas.width,
+        this.$refs.canvas.height
+      );
+    },
+    reDrawCanvas(clear) {
+      if (clear)
+        this.ctx.clearRect(
+          0,
+          0,
+          this.$refs.canvas.width,
+          this.$refs.canvas.height
+        );
+      // this.strokesList.push(this.redo_list.pop());
+
+      // console.log(this.strokesList[this.cStep]);
+      const canvasPic = new Image();
+      canvasPic.src = this.strokesList[this.cStep];
+      canvasPic.onload = () => {
+        this.ctx.drawImage(canvasPic, 0, 0);
+      };
+      // this.strokes.push(this.removedStrokes.shift());
+      // this.redrawCanvas();
     },
     toggleEraser() {
-      this.hex = "#fff";
+      this.eraserActive = !this.eraserActive;
     },
     getOffset(el) {
       const rect = el.getBoundingClientRect();
@@ -256,6 +344,21 @@ export default {
         top: rect.top + window.scrollY,
       };
     },
+    deleteCanvas() {
+      this.$q
+        .dialog({
+          title: "wtf brah?",
+          message: "Would you like to clear canvas?",
+          cancel: true,
+          persistent: true,
+        })
+        .onOk(() => {
+          let payload = { id: this.socket.id, username: this.socket.username };
+          this.clearCanvas(payload);
+          this.socket.emit("clearCanvas", payload);
+        });
+    },
+
     // addStroke(e) {
     //   this.strokes.push([
     //     Number.parseInt(e.clientX),
