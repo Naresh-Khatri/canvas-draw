@@ -6,7 +6,7 @@
           flat
           dense
           round
-          icon="menu"
+          icon="chat"
           aria-label="Menu"
           @click="leftDrawer = true"
         >
@@ -17,7 +17,11 @@
           </transition>
         </q-btn>
         <q-toolbar-title> Drawing App </q-toolbar-title>
-        <q-btn icon="logout" @click="logout" />
+        <div v-if="!showPing" @click="startPinging">
+          <q-btn label="Show ping" />
+        </div>
+        <div v-else><q-btn :label="getPingText" @click="stopPinging" /></div>
+        <q-btn icon="logout" color="negative" class="q-pa-sm" @click="logout" />
       </q-toolbar>
       <q-drawer v-model="leftDrawer" dark>
         <ChatBox />
@@ -43,7 +47,15 @@ export default {
       leftDrawer: false,
       unreadMsgsCount: 0,
       socket: {},
+      showPing: false,
+      ping: 'pinging...',
+      pingInterval: null,
     };
+  },
+  computed: {
+    getPingText() {
+      return `${this.ping} ms`;
+    },
   },
   watch: {
     leftDrawer: function () {
@@ -55,12 +67,27 @@ export default {
     this.socket.on("receiveMsg", () => {
       this.unreadMsgsCount++;
     });
+    this.socket.on("ping", (time) => {
+      // console.log(Date.now() ,time)
+      this.ping = Date.now() - time;
+    });
   },
+
   methods: {
     logout() {
       localStorage.setItem("username", "");
       this.$router.go();
       this.$q.notify({ message: "Logged out!", color: "negative" });
+    },
+    startPinging() {
+      this.showPing = true;
+      this.pingInterval = setInterval(() => {
+        this.socket.emit("ping", Date.now());
+      }, 1000);
+    },
+    stopPinging() {
+      this.showPing = false;
+      clearInterval(this.pingInterval);
     },
   },
 };

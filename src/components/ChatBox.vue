@@ -1,9 +1,32 @@
 <template>
   <div class="q-pa-md bg-dark" style="min-height: 80vh">
-    <h4>ChatBox</h4>
+    <div class="q-my-xl">
+      <span class="text-h3">ChatBox</span>
+      <!-- <span class="q-ml-md" :key="getUsersCount">
+        {{ getUsersCount }} Online
+      </span> -->
+    </div>
+    <div class="text-right"> 🟢 {{ Object.keys($store.state.usersList).length }} Online</div>
+    <div class="q-mb-lg">
+      <span v-for="(user, index) in $store.state.usersList" :key="index">
+        <q-chip color="primary">
+          <q-avatar>
+            <q-icon name="person" color="white" />
+          </q-avatar>
+          <span class="text-white">
+            {{ user.username }}
+          </span>
+        </q-chip>
+      </span>
+    </div>
     <q-scroll-area ref="scrollArea" style="height: 55vh">
-      <q-chat-message name="Server" :text="['hey', 'how are you?']" />
       <q-chat-message
+        class="q-mx-md"
+        name="Server"
+        :text="['hey', 'how are you?']"
+      />
+      <q-chat-message
+        class="q-mx-md"
         v-for="(msg, index) in getMsgsData"
         :key="index"
         :name="msg.username"
@@ -40,26 +63,42 @@ export default {
       input: "",
       updateTime: 0, //purely to update timestamps
       msgsData: this.$store.state.msgsData,
+      usersList: this.$store.state.usersList,
     };
   },
   computed: {
+    getUsersCount() {
+      console.log(this.usersList)
+      return Object.keys(this.usersList).length;
+    },
     getMsgsData() {
       //if msgsData is used directly on chat-component it doesnt update
       //when previous msgs data is fetched. so using computed
-      console.log(this.$store.state.msgsData)
+
+      // console.log(this.$store.state.msgsData)
       return this.$store.state.msgsData;
     },
   },
   mounted() {
     this.socket = this.$store.state.socket;
+    //getting userlist after 500ms
+    setTimeout(() => {
+      this.socket.emit('getUsersList')
+    }, 500);
+    this.socket.on("receiveUsersList", (data) => {
+
+      console.log(data);
+      this.$store.commit('updateUsersList', data)
+    });
     this.socket.on("receiveMsg", (data) => {
       this.appendNewMsg(data);
       this.animateScroll();
     });
+ 
     setInterval(() => {
       // this.updateTime++;
     }, 1000);
-    console.log(this.msgsData);
+    // console.log(this.msgsData);
   },
   methods: {
     animateScroll() {

@@ -11,6 +11,6 @@ git status
 git add .
 
 git status
-git commit -m 'chat functions improved and performance imporved'
+git commit -m 'Add major bug fixed and features'
 #git pull origin gh-pages --allow-unrelated-histories
 git push origin gh-pages --force

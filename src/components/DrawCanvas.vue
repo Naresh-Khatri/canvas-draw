@@ -4,7 +4,7 @@
       <q-btn
         round
         color="primary"
-        :disable="cStep < 0"
+        :disable="cSteps < 0"
         icon="undo"
         @click="undo"
         :key="strokesList"
@@ -45,17 +45,20 @@
         >
           <path
             d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 0 1-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0M4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53l-4.95-4.95l-4.95 4.95z"
-            fill="#fff"
+            :fill="eraserActive ? '#89f6ff' : '#fff'"
           />
         </svg> </q-btn
       ><q-btn round color="negative" icon="delete" @click="deleteCanvas" />
-      <q-color
-        v-show="changingColor"
-        v-model="hex"
-        style="z-index: 10"
-        default-view="palette"
-        class="my-picker absolute"
-      />
+      <q-dialog v-model="changingColor">
+        <q-color
+          v-model="hex"
+          style="width: 70vw"
+          default-view="palette"
+          no-header
+          no-footer
+          class="my-picker absolute"
+        />
+      </q-dialog>
     </div>
     <div class="flex justify-center q-pt-md">
       <div class="flex row items-center">
@@ -81,13 +84,14 @@
         @mousemove="mousemove"
         @mousedown="mousedown"
         @mouseup="mouseup"
+        @mouseout="mouseout"
         @touchstart="mousedown"
         @touchend="mouseup"
         @touchmove="touchmove"
       ></canvas>
     </div>
     {{ canPainting }}
-    {{ socket.username }} ({{ socket.id }}) {{ strokesList.length }}{{ cStep }}
+    {{ socket.username }} ({{ socket.id }}) {{ strokesList.length }}{{ cSteps }}
     <!-- <img
       style="transform: scale(0.3)"
       v-for="img in strokesList"
@@ -111,11 +115,11 @@ export default {
       redo_list: [],
       currentStroke: [],
       removedStrokes: [],
-      hex: "#1976D2",
+      hex: "#000",
       brushSize: 10,
       changingColor: false,
       ctx: null,
-      cStep: -1,
+      cSteps: -1,
     };
   },
   mounted() {
@@ -134,11 +138,12 @@ export default {
       this.changingColor = false;
     },
     eraserActive: function () {
-      if (this.eraserActive)
-        this.$refs.canvas.style = `border: 3px solid red;
-        cursor: url('https://api.iconify.design/mdi-eraser.svg?height=24')
-           4 12, auto`;
-      else this.$refs.canvas.style = `border: 1px solid black;cursor: default`;
+      // if (this.eraserActive)
+      //   this.$refs.canvas.style = `border: 3px solid red;
+      //   cursor: url('https://api.iconify.design/mdi-eraser.svg?height=24')
+      //      4 12, auto`;
+      // else
+      this.$refs.canvas.style = `border: 2px solid black;cursor: default`;
     },
   },
   methods: {
@@ -149,29 +154,37 @@ export default {
       this.$refs.canvas.height = 500;
     },
     addSocketListeners() {
-      this.socket.on("lockCanvas", (username) => {
-        this.canvasOwner = username;
+      this.socket.on("receivePrevCanvasData", (data) => {
+        this.strokesList = data.canvasData;
+        this.cSteps = data.cSteps;
+        console.log(this.strokesList, this.cSteps);
+        this.reDrawCanvas(false)
+      });
+      this.socket.on("lockCanvas", (user) => {
+        this.canvasOwner = user.username;
         this.canPainting = false;
       });
       this.socket.on("releaseCanvas", (canvasData) => {
-        this.cStep++;
-        this.strokesList.push(canvasData);
-        if(this.cStep<this.strokesList.length-1){
-          this.strokesList.length = this.cStep
-        }
-        this.reDrawCanvas(false);
-        // console.log(canvasData);
         this.canvasOwner = "";
         this.canPainting = true;
+        if (canvasData == null) return;
+        this.cSteps++;
+        this.strokesList.push(canvasData);
+        if (this.cSteps < this.strokesList.length - 1) {
+          this.strokesList.length = this.cSteps;
+        }
+        // console.log(this.strokesList)
+        this.reDrawCanvas(false);
+        // console.log(canvasData);
       });
       this.socket.on("receiveUndo", (user) => {
         this.$q.notify({ message: `${user.username} did an undo!` });
-        this.cStep--;
+        this.cSteps--;
         this.reDrawCanvas(true);
       });
       this.socket.on("receiveRedo", (user) => {
         this.$q.notify({ message: `${user.username} did a redo!` });
-        this.cStep++;
+        this.cSteps++;
         this.reDrawCanvas(true);
       });
       this.socket.on("brushMove", (data) => {
@@ -197,13 +210,19 @@ export default {
         this.clearCanvas(data);
       });
     },
+    mouseout(e) {
+      if (this.painting) this.mouseup();
+    },
     mousedown(e) {
       if (!this.canPainting) return;
       this.painting = true;
       if (this.removedStrokes) this.removedStrokes = [];
       this.currentStroke = [];
       this.ctx.beginPath();
-      this.socket.emit("lockCanvas", this.socket.username);
+      this.socket.emit("lockCanvas", {
+        id: this.socket.id,
+        username: this.socket.username,
+      });
       this.mousemove(e);
     },
     mousemove(e) {
@@ -272,14 +291,14 @@ export default {
       //   hex: this.hex,
       //   brushSize: this.brushSize,
       // });
-      this.cStep++;
+      this.cSteps++;
       this.strokesList.push(this.$refs.canvas.toDataURL());
       // console.log(this.strokesList);
       this.socket.emit("releaseCanvas", this.$refs.canvas.toDataURL());
       // console.log(this.strokes);
-      if (this.cStep < this.strokesList.length - 1) {
+      if (this.cSteps < this.strokesList.length - 1) {
         console.log("yes");
-        this.strokesList.length = this.cStep;
+        this.strokesList.length = this.cSteps;
       }
     },
     test() {},
@@ -290,11 +309,11 @@ export default {
         username: this.socket.username,
       });
       if (this.strokesList <= 0) return;
-      this.cStep--;
+      this.cSteps--;
       this.reDrawCanvas(true);
     },
     redo() {
-      if (this.cStep >= this.strokesList.length - 1) {
+      if (this.cSteps >= this.strokesList.length - 1) {
         this.$q.notify({ message: "max limit!" });
         return;
       }
@@ -302,7 +321,7 @@ export default {
         id: this.socket.id,
         username: this.socket.username,
       });
-      this.cStep++;
+      this.cSteps++;
       this.reDrawCanvas(true);
     },
     clearCanvas(data) {
@@ -325,9 +344,9 @@ export default {
         );
       // this.strokesList.push(this.redo_list.pop());
 
-      // console.log(this.strokesList[this.cStep]);
+      // console.log(this.strokesList[this.cSteps]);
       const canvasPic = new Image();
-      canvasPic.src = this.strokesList[this.cStep];
+      canvasPic.src = this.strokesList[this.cSteps];
       canvasPic.onload = () => {
         this.ctx.drawImage(canvasPic, 0, 0);
       };

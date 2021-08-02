@@ -4,6 +4,8 @@ export default createStore({
   state: {
     socket: {},
     msgsData: [],
+    usersCount:0,
+    usersList:{}
   },
   mutations: {
     updateSocket(state, socket) {
@@ -11,17 +13,24 @@ export default createStore({
     },
     updateMsgsData(state, msgsData) {
       state.msgsData = msgsData
-
     },
+    updateUsersCount(state, usersCount){
+      state.usersCount  = usersCount
+    },
+    updateUsersList(state, usersList){
+      state.usersList = usersList
+    },
+    
     appendNewMsgData(state, msgData) {
       // logic to append text if last and new msg owners are same
       if (state.msgsData.length == 0)
         state.msgsData.push(msgData)
       else {
-        console.log(state.msgsData[state.msgsData.length - 1], msgData)
+        // console.log(state.msgsData[state.msgsData.length - 1], msgData)
+        // console.log( msgData.time - state.msgsData[state.msgsData.length - 1].time)
         //check if both usernames are same and time < 5min
         if (state.msgsData[state.msgsData.length - 1].username == msgData.username &&
-          msgData.time - state.msgsData[state.msgsData.length - 1].time < 300) {
+          msgData.time - state.msgsData[state.msgsData.length - 1].time < 300000) {
           console.log('same user')
           state.msgsData[state.msgsData.length - 1].text.push(msgData.text[0])
           state.msgsData[state.msgsData.length - 1].time = msgData.time
@@ -32,7 +41,6 @@ export default createStore({
           state.msgsData.push(msgData)
         }
       }
-
     }
   },
   actions: {
